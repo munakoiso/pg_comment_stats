@@ -1,0 +1,6 @@
+# pg_comment_stats extension
+comment = 'Kernel statistics gathering by comment keys.'
+default_version = '1.0'
+requires = 'pg_stat_statements,pg_stat_kcache'
+module_pathname = '$libdir/pg_comment_stats'
+relocatable = true

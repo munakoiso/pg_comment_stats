@@ -12,6 +12,9 @@
 #include "utils/dynahash.h"
 #include "utils/timestamp.h"
 #include "pg_comment_stats.h"
+#include "utils/guc.h"
+
+PG_MODULE_MAGIC;
 
 static char *worker_name = "pgcs_worker";
 
@@ -799,8 +802,8 @@ pgcs_internal_get_stats_time_interval(TimestampTz timestamp_left, TimestampTz ti
     int length;
     int i;
 
-    Datum values[PG_STAT_KCACHE_COLS + 3];
-    bool nulls[PG_STAT_KCACHE_COLS + 3];
+    Datum values[PG_STAT_KCACHE_COLS + 1];
+    bool nulls[PG_STAT_KCACHE_COLS + 1];
 
     /* Shmem structs not ready yet */
     if (!global_variables)

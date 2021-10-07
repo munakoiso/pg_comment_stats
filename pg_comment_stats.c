@@ -48,7 +48,7 @@ void pgcs_add(void*, void*);
 void pgcs_on_delete(void*, void*);
 static uint64_t pgcs_find_optimal_memory_split(uint64_t, uint64_t, uint64_t*, uint64_t*, uint64_t*, int*, int*);
 void pg_comment_stats_main(Datum main_arg);
-void pgcs_store_aggregated_counters(pgskCounters*, char*, int, pgskStoreKind);
+void pgcs_store_aggregated_counters(pgskCounters*, const char*, int, pgskStoreKind);
 
 static int
 get_random_int(void)
@@ -408,7 +408,7 @@ pgcs_find_optimal_memory_split(uint64_t left_bound,
 }
 
 void
-pgcs_store_aggregated_counters(pgskCounters* counters, char* query_string, int level, pgskStoreKind kind) {
+pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string, int level, pgskStoreKind kind) {
     pgcsBucketItem key;
     pgskCounters additional_counters;
     bool is_comment_exist;

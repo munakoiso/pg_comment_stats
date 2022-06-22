@@ -71,7 +71,7 @@ pg_comment_stats_sigterm(SIGNAL_ARGS) {
 
 void
 _PG_init(void) {
-    int64 buffer_size;
+    Size buffer_size;
     if (!process_shared_preload_libraries_in_progress) {
         elog(ERROR, "This module can only be loaded via shared_preload_libraries");
         return;
@@ -115,10 +115,10 @@ _PG_init(void) {
                                NULL,
                                NULL);
 
-    buffer_size = buffer_size_mb * 1024 * 1024;
+    buffer_size = ((Size)buffer_size_mb) * 1024 * 1024;
 
     EmitWarningsOnPlaceholders("pg_comment_stats");
-    RequestAddinShmemSpace(buffer_size);
+    RequestAddinShmemSpace(CACHELINEALIGN(buffer_size));
 #if PG_VERSION_NUM >= 90500
     RequestNamedLWLockTranche("pg_comment_stats", 1);
 #else

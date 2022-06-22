@@ -544,14 +544,24 @@ get_id_from_string(char *string_pointer) {
         }
 
         if (global_variables->currents_strings_count < global_variables->items_count) {
-            stringFromId = hash_search(id_to_string, (void *) &id, HASH_ENTER, &found);
+            stringFromId = hash_search(id_to_string, (void *) &id, HASH_ENTER_NULL, &found);
+            if (stringFromId == NULL) {
+                global_variables->out_of_shared_memory = true;
+                return comment_value_not_specified;
+            }
             global_variables->currents_strings_count += 1;
             stringFromId->id = id;
             memset(stringFromId->string, '\0', max_parameter_length);
             strcpy(stringFromId->string, string);
             stringFromId->counter = 0;
 
-            idFromString = hash_search(string_to_id, (void *) &string, HASH_ENTER, &found);
+            idFromString = hash_search(string_to_id, (void *) &string, HASH_ENTER_NULL, &found);
+            if (idFromString == NULL) {
+                global_variables->currents_strings_count -= 1;
+                stringFromId = hash_search(id_to_string, (void *) &id, HASH_REMOVE, &found);
+                global_variables->out_of_shared_memory = true;
+                return comment_value_not_specified;
+            }
             memset(idFromString->string, '\0', max_parameter_length);
             strcpy(idFromString->string, string);
             idFromString->id = id;
@@ -623,6 +633,7 @@ pgcs_init() {
     global_variables->max_strings_count_achieved = false;
     global_variables->keys_count = 0;
     global_variables->strings_overflow_by = 0;
+    global_variables->out_of_shared_memory = false;
     global_variables->keys_overflow = false;
     LWLockRelease(&global_variables->lock);
     LWLockRelease(&global_variables->reset_lock);
@@ -679,6 +690,10 @@ pg_comment_stats_main(Datum main_arg) {
         /* Main work happens here */
         pgcs_update_info();
         LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
+        if (global_variables->out_of_shared_memory) {
+            elog(WARNING, "Pg comment stats: out of shared memory");
+            global_variables->out_of_shared_memory = false;
+        }
         pgtb_tick(extension_name);
         LWLockRelease(&global_variables->reset_lock);
         wait_microsec = (int64) global_variables->bucket_duration * 1e6 - (GetCurrentTimestamp() - timestamp);

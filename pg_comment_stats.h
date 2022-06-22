@@ -54,6 +54,7 @@ typedef struct global_info {
     int bucket_duration;
     int strings_overflow_by;
     bool keys_overflow;
+    bool out_of_shared_memory;
     LWLock lock;
     LWLock reset_lock;
     bool max_strings_count_achieved;

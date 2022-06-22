@@ -115,6 +115,17 @@ _PG_init(void) {
                                NULL,
                                NULL);
 
+    DefineCustomBoolVariable("pg_comment_stats.enabled",
+                             "Flag to enable or disable stats collecting.",
+                             NULL,
+                             &pgcs_enabled,
+                             true,
+                             PGC_SIGHUP,
+                             0, /* no flags required */
+                             NULL,
+                             NULL,
+                             NULL);
+
     buffer_size = ((Size)buffer_size_mb) * 1024 * 1024;
 
     EmitWarningsOnPlaceholders("pg_comment_stats");
@@ -415,6 +426,10 @@ pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string,
     char query[(max_parameter_length + 1) * max_parameters_count];
 
     if (global_variables == NULL) {
+        return;
+    }
+
+    if (!pgcs_enabled) {
         return;
     }
 

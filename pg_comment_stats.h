@@ -62,4 +62,5 @@ typedef struct global_info {
 
 void pgcs_register_bgworker(void);
 
+bool pgcs_enabled;
 #endif

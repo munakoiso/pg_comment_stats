@@ -3,7 +3,6 @@
 #define max_time_interval 360000
 #define min_time_interval 100
 #define buckets_count 100
-#define actual_buckets_count 105
 #define max_parameter_length 64
 #define max_parameters_count 5
 #define comment_key_not_specified -1

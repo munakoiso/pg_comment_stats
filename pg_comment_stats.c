@@ -423,6 +423,7 @@ pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string,
     pgcsBucketItem key;
     pgskCounters additional_counters;
     bool is_comment_exist;
+    bool stored;
     char query[(max_parameter_length + 1) * max_parameters_count];
 
     if (global_variables == NULL) {
@@ -447,8 +448,8 @@ pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string,
     is_comment_exist = true;
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     get_composite_key_by_query((char*)&query, &key.compositeKey, &is_comment_exist);
+    LWLockRelease(&global_variables->lock);
     if (!is_comment_exist) {
-        LWLockRelease(&global_variables->lock);
         return;
     }
     key.database = MyDatabaseId;
@@ -470,8 +471,10 @@ pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string,
     additional_counters.nvcsws = counters->nvcsws;
     additional_counters.nivcsws = counters->nivcsws;
 #endif
-    LWLockRelease(&global_variables->lock);
-    pgtb_put(extension_name, &key, &additional_counters);
+    stored = pgtb_put(extension_name, &key, &additional_counters);
+    if (!stored) {
+        pgcs_on_delete((void*) &key, (void*) &additional_counters);
+    }    
 }
 
 void pgcs_add(void* value, void* anotherValue) {
@@ -530,7 +533,9 @@ get_id_from_string(char *string_pointer) {
     memset(&string, '\0', max_parameter_length);
     strcpy(string, string_pointer);
     idFromString = hash_search(string_to_id, (void *) &string, HASH_FIND, &found);
-    if (!found) {
+    if (found) {
+        stringFromId = hash_search(id_to_string, (void *) &idFromString->id, HASH_FIND, &found);
+    } else {
         found = true;
         /* Generate id that not used yet. */
         while (found) {
@@ -553,16 +558,15 @@ get_id_from_string(char *string_pointer) {
         } else {
             if (!global_variables->max_strings_count_achieved) {
                 elog(WARNING,
-                     "pgcs: Can't handle request. No more memory for save strings are available. "
-                     "Current max count of unique strings = %d."
-                     "Decide to tune pg_comment_stats.buffer_size", global_variables->items_count);
+                     "pg comment stats: Can't handle request. No more memory for save strings are available. "
+                     "Current max count of unique strings = %d. \n"
+                     "Decide to tune pg_comment_stats.buffer_size. ", global_variables->items_count);
             }
             global_variables->max_strings_count_achieved = true;
             global_variables->strings_overflow_by += 1;
-            return -1;
+            return comment_value_not_specified;
         }
     }
-    stringFromId = hash_search(id_to_string, (void *) &idFromString->id, HASH_FIND, &found);
     stringFromId->counter++;
 
     return idFromString->id;

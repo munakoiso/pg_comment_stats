@@ -61,6 +61,19 @@ typedef struct global_info {
 } GlobalInfo;
 
 void pgcs_register_bgworker(void);
+extern void pgtb_init(const char*,
+               void (*add)(void*, void*),
+               void (*on_delete)(void*, void*),
+               int,
+               uint64_t,
+               uint64_t,
+               uint64_t
+               );
+extern bool pgtb_put(const char*, void*, void*);
+extern void pgtb_tick(const char*);
+extern void pgtb_get_stats(const char*, void*, int*, TimestampTz*, TimestampTz*);
+extern void pgtb_get_stats_time_interval(const char*, TimestampTz*, TimestampTz*, void*, int*);
+extern int pgtb_get_items_count(uint64_t, uint64_t, uint64_t);
 
 bool pgcs_enabled;
 #endif

@@ -54,7 +54,8 @@ AS 'MODULE_PATHNAME', 'pgcs_exclude_key'
 CREATE FUNCTION pgcs_get_excluded_keys(
     OUT excluded_key text
 )
-AS 'MODULE_PATHNAME', 'pgcs_get_excluded_keys'
+    RETURNS SETOF text
+    AS 'MODULE_PATHNAME', 'pgcs_get_excluded_keys'
     LANGUAGE C STRICT;
 
 CREATE FUNCTION pgcs_reset_excluded_keys()
@@ -65,6 +66,7 @@ AS 'MODULE_PATHNAME', 'pgcs_reset_excluded_keys'
 CREATE FUNCTION pgcs_get_buffer_stats(
     OUT saved_strings_count     integer,
     OUT available_strings_count integer
-) STRICT
-AS 'MODULE_PATHNAME', 'pgcs_get_buffer_stats'
-    LANGUAGE C;
+)
+    RETURNS SETOF record
+    AS 'MODULE_PATHNAME', 'pgcs_get_buffer_stats'
+    LANGUAGE C STRICT;

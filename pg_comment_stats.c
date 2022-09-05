@@ -30,6 +30,7 @@ static volatile sig_atomic_t got_sigterm = false;
 
 static int stat_time_interval;
 static int buffer_size_mb;
+static Size buffer_size;
 static char* excluded_keys = NULL;
 
 void _PG_init(void);
@@ -37,6 +38,11 @@ void _PG_fini(void);
 
 static pgsk_counters_hook_type prev_pgsk_counters_hook = NULL;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+
+#if (PG_VERSION_NUM >= 150000)
+static shmem_request_hook_type prev_shmem_request_hook = NULL;
+static void pgcs_shmem_request(void);
+#endif
 
 static void pgcs_shmem_startup(void);
 void pgcs_register_bgworker(void);
@@ -71,7 +77,6 @@ pg_comment_stats_sigterm(SIGNAL_ARGS) {
 
 void
 _PG_init(void) {
-    Size buffer_size;
     if (!process_shared_preload_libraries_in_progress) {
         elog(ERROR, "This module can only be loaded via shared_preload_libraries");
         return;
@@ -129,11 +134,20 @@ _PG_init(void) {
     buffer_size = ((Size)buffer_size_mb) * 1024 * 1024;
 
     EmitWarningsOnPlaceholders("pg_comment_stats");
-    RequestAddinShmemSpace(CACHELINEALIGN(buffer_size));
-#if PG_VERSION_NUM >= 90500
-    RequestNamedLWLockTranche("pg_comment_stats", 1);
+
+#if (PG_VERSION_NUM >= 150000)
+    prev_shmem_request_hook = shmem_request_hook;
+    shmem_request_hook = pgcs_shmem_request;
 #else
+    RequestAddinShmemSpace(CACHELINEALIGN(buffer_size));
+#endif
+
+#if (PG_VERSION_NUM < 150000)
+    #if PG_VERSION_NUM >= 90500
+    RequestNamedLWLockTranche("pg_comment_stats", 1);
+    #else
     RequestAddinLWLocks(1);
+    #endif
 #endif
 
     /* Install hook */
@@ -150,6 +164,22 @@ _PG_fini(void)
     shmem_startup_hook = prev_shmem_startup_hook;
     pgsk_counters_hook = prev_pgsk_counters_hook;
 }
+
+
+#if (PG_VERSION_NUM >= 150000)
+/*
+ * Requests any additional shared memory required for our extension
+ */
+static void
+pgcs_shmem_request(void)
+{
+    if (prev_shmem_request_hook)
+        prev_shmem_request_hook();
+
+    RequestAddinShmemSpace(CACHELINEALIGN(buffer_size));
+    RequestNamedLWLockTranche("pg_comment_stats", 1);
+}
+#endif
 
 static void
 pgcs_shmem_startup(void)

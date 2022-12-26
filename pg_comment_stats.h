@@ -22,14 +22,15 @@
 #include "pg_comment_stats_constants.h"
 
 typedef struct pgcsStringFromId {
-    int id;
-    char string[max_parameter_length];
-    int counter;
+    int     id;
+    char    string[max_parameter_length];
+    int     counter;
+    slock_t mutex;		/* protects the counter only */
 } pgcsStringFromId;
 
 typedef struct pgcsIdFromString {
     char string[max_parameter_length];
-    int id;
+    int  id;
 } pgcsIdFromString;
 
 typedef struct pgcsCompositeKey {
@@ -38,26 +39,27 @@ typedef struct pgcsCompositeKey {
 
 typedef struct pgcsBucketItem {
     pgcsCompositeKey compositeKey;
-    Oid database;
-    Oid user;
+    Oid              database;
+    Oid              user;
 } pgcsBucketItem;
 
 Datum get_jsonb_datum_from_key(pgcsCompositeKey *);
 
 typedef struct global_info {
-    char commentKeys[max_parameters_count][max_parameter_length];
-    char excluded_keys[max_parameters_count][max_parameter_length];
-    int excluded_keys_count;
-    int keys_count;
-    int currents_strings_count;
-    int items_count;
-    int bucket_duration;
-    int strings_overflow_by;
-    bool keys_overflow;
-    bool out_of_shared_memory;
-    LWLock lock;
-    LWLock reset_lock;
-    bool max_strings_count_achieved;
+    char    commentKeys[max_parameters_count][max_parameter_length];
+    char    excluded_keys[max_parameters_count][max_parameter_length];
+    int     excluded_keys_count;
+    int     keys_count;
+    int     currents_strings_count;
+    int     items_count;
+    int     bucket_duration;
+    int     strings_overflow_by;
+    slock_t overflow_mutex; /* protects strings_overflow_by counter */
+    bool    keys_overflow;
+    bool    out_of_shared_memory;
+    LWLock  lock;
+    bool    max_strings_count_achieved;
+
     pgcsBucketItem buckets[FLEXIBLE_ARRAY_MEMBER];
 } GlobalInfo;
 

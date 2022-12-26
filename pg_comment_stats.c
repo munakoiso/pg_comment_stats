@@ -48,6 +48,7 @@ static void pgcs_shmem_startup(void);
 void pgcs_register_bgworker(void);
 static void get_composite_key_by_query(char*, pgcsCompositeKey*, bool*);
 static int get_index_of_comment_key(char*);
+static int get_index_of_comment_key_lock_mode(char*, bool);
 static int get_id_from_string(char*);
 static Datum pgcs_internal_get_stats_time_interval(TimestampTz, TimestampTz, FunctionCallInfo);
 void pgcs_add(void*, void*);
@@ -254,6 +255,7 @@ pgcs_shmem_startup(void)
     stringFromId = hash_search(id_to_string, (void *) &id, HASH_ENTER, &found);
     global_variables->currents_strings_count = 1;
     stringFromId->id = id;
+    SpinLockInit(&stringFromId->mutex);
     memset(stringFromId->string, '\0', sizeof(stringFromId->string));
 
     memset(&global_variables->excluded_keys, '\0', sizeof(global_variables->excluded_keys));
@@ -286,24 +288,54 @@ is_key_excluded(char *key) {
 
 static int
 get_index_of_comment_key(char *key) {
+    int key_index;
+
+    key_index = get_index_of_comment_key_lock_mode(key, false);
+    if (key_index == comment_key_not_specified) {
+        /* Now read all comment keys with write lock. If there is still no match - create one */
+        key_index = get_index_of_comment_key_lock_mode(key, true);
+    }
+    return key_index;
+}
+
+static int
+get_index_of_comment_key_lock_mode(char *key, bool is_exclusive) {
     int i;
     if (global_variables == NULL) {
         return comment_key_not_specified;
     }
 
-    if (is_key_excluded(key))
+    if (is_exclusive) {
+        LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
+    } else {
+        LWLockAcquire(&global_variables->lock, LW_SHARED);
+    }
+    if (is_key_excluded(key)) {
+        LWLockRelease(&global_variables->lock);
         return comment_key_not_specified;
+    }
 
     for (i = 0; i < global_variables->keys_count; ++i) {
-        if (strcmp(key, global_variables->commentKeys[i]) == 0)
+        if (strcmp(key, global_variables->commentKeys[i]) == 0) {
+            LWLockRelease(&global_variables->lock);
             return i;
+        }
     }
+    if (!is_exclusive) {
+        LWLockRelease(&global_variables->lock);
+        return comment_key_not_specified;
+    }
+
     if (global_variables->keys_count == max_parameters_count) {
         global_variables->keys_overflow = true;
+        LWLockRelease(&global_variables->lock);
         return comment_key_not_specified;
     }
     strcpy(global_variables->commentKeys[global_variables->keys_count++], key);
-    return global_variables->keys_count - 1;
+    i = global_variables->keys_count - 1;
+    LWLockRelease(&global_variables->lock);
+
+    return i;
 }
 
 static void
@@ -475,10 +507,7 @@ pgcs_store_aggregated_counters(pgskCounters* counters, const char* query_string,
     memset(&key.compositeKey, 0, sizeof(pgcsCompositeKey));
     strlcpy(query, query_string, sizeof(query));
     query[sizeof(query) - 1] = '\0';
-    is_comment_exist = true;
-    LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     get_composite_key_by_query((char*)&query, &key.compositeKey, &is_comment_exist);
-    LWLockRelease(&global_variables->lock);
     if (!is_comment_exist) {
         return;
     }
@@ -555,28 +584,54 @@ get_id_from_string(char *string_pointer) {
     if (!string_to_id || !id_to_string)
         return comment_value_not_specified;
     if (strlen(string_pointer) >= max_parameter_length) {
-        elog(WARNING, "pg stat kcache: Comment value %s too long to store. Max length is %d",
+        elog(WARNING, "pg_comment_stats: Comment value %s too long to store. Max length is %d",
              string_pointer,
              max_parameter_length);
         return comment_value_not_specified;
     }
     memset(&string, '\0', max_parameter_length);
     strcpy(string, string_pointer);
+    LWLockAcquire(&global_variables->lock, LW_SHARED);
+
     idFromString = hash_search(string_to_id, (void *) &string, HASH_FIND, &found);
     if (found) {
         stringFromId = hash_search(id_to_string, (void *) &idFromString->id, HASH_FIND, &found);
     } else {
-        found = true;
-        /* Generate id that not used yet. */
-        while (found) {
-            id = get_random_int();
-            stringFromId = hash_search(id_to_string, (void *) &id, HASH_FIND, &found);
+        if (global_variables->currents_strings_count >= global_variables->items_count) {
+            SpinLockAcquire(&global_variables->overflow_mutex);
+            if (!global_variables->max_strings_count_achieved) {
+                elog(WARNING,
+                     "pg_comment_stats: Can't handle request. No more memory for save strings are available. "
+                     "Current max count of unique strings = %d. \n"
+                     "Decide to tune pg_comment_stats.buffer_size. ", global_variables->items_count);
+            }
+            global_variables->max_strings_count_achieved = true;
+            global_variables->strings_overflow_by += 1;
+            SpinLockRelease(&global_variables->overflow_mutex);
+            LWLockRelease(&global_variables->lock);
+            return comment_value_not_specified;
         }
+        LWLockRelease(&global_variables->lock);
+        LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
+        /* To prevent race we should                         */
+        /* check once more, that string still does not exist */
+        idFromString = hash_search(string_to_id, (void *) &string, HASH_FIND, &found);
+        if (found) {
+            /* If found - we can simply increase counter for string */
+            stringFromId = hash_search(id_to_string, (void *) &idFromString->id, HASH_FIND, &found);
+        } else {
+            /* If not found - insert string into hash tables */
+            /* Generate id that not used yet. */
+            found = true;
+            while (found) {
+                id = get_random_int();
+                stringFromId = hash_search(id_to_string, (void *) &id, HASH_FIND, &found);
+            }
 
-        if (global_variables->currents_strings_count < global_variables->items_count) {
             stringFromId = hash_search(id_to_string, (void *) &id, HASH_ENTER_NULL, &found);
             if (stringFromId == NULL) {
                 global_variables->out_of_shared_memory = true;
+                LWLockRelease(&global_variables->lock);
                 return comment_value_not_specified;
             }
             global_variables->currents_strings_count += 1;
@@ -584,32 +639,27 @@ get_id_from_string(char *string_pointer) {
             memset(stringFromId->string, '\0', max_parameter_length);
             strcpy(stringFromId->string, string);
             stringFromId->counter = 0;
+            SpinLockInit(&stringFromId->mutex);
 
             idFromString = hash_search(string_to_id, (void *) &string, HASH_ENTER_NULL, &found);
             if (idFromString == NULL) {
                 global_variables->currents_strings_count -= 1;
                 stringFromId = hash_search(id_to_string, (void *) &id, HASH_REMOVE, &found);
                 global_variables->out_of_shared_memory = true;
+                LWLockRelease(&global_variables->lock);
                 return comment_value_not_specified;
             }
             memset(idFromString->string, '\0', max_parameter_length);
             strcpy(idFromString->string, string);
             idFromString->id = id;
-        } else {
-            if (!global_variables->max_strings_count_achieved) {
-                elog(WARNING,
-                     "pg comment stats: Can't handle request. No more memory for save strings are available. "
-                     "Current max count of unique strings = %d. \n"
-                     "Decide to tune pg_comment_stats.buffer_size. ", global_variables->items_count);
-            }
-            global_variables->max_strings_count_achieved = true;
-            global_variables->strings_overflow_by += 1;
-            return comment_value_not_specified;
         }
     }
+    SpinLockAcquire(&stringFromId->mutex);
     stringFromId->counter++;
-
-    return idFromString->id;
+    SpinLockRelease(&stringFromId->mutex);
+    id = idFromString->id;
+    LWLockRelease(&global_variables->lock);
+    return id;
 }
 
 static void
@@ -657,7 +707,6 @@ void pgcs_on_delete(void* key, void* value) {
 
 static void
 pgcs_init() {
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     memset(&global_variables->commentKeys, '\0', sizeof(global_variables->commentKeys));
     global_variables->max_strings_count_achieved = false;
@@ -665,8 +714,8 @@ pgcs_init() {
     global_variables->strings_overflow_by = 0;
     global_variables->out_of_shared_memory = false;
     global_variables->keys_overflow = false;
+    SpinLockInit(&global_variables->overflow_mutex);
     LWLockRelease(&global_variables->lock);
-    LWLockRelease(&global_variables->reset_lock);
 }
 
 static void
@@ -674,16 +723,18 @@ pgcs_update_info() {
     if (global_variables == NULL) {
         return;
     }
+    SpinLockAcquire(&global_variables->overflow_mutex);
     if (global_variables->max_strings_count_achieved) {
         elog(WARNING, "pg_comment_stats: Too many unique strings. Overflow by %d (%f%%)",
              global_variables->strings_overflow_by, (double)global_variables->strings_overflow_by / global_variables->items_count);
     }
     if (global_variables->keys_overflow) {
-        elog(WARNING, "pg_stat_kcache: Can not store more than %d parameters", max_parameters_count);
+        elog(WARNING, "pg_comment_stats: Can not store more than %d parameters", max_parameters_count);
     }
     global_variables->keys_overflow = false;
     global_variables->strings_overflow_by = 0;
     global_variables->max_strings_count_achieved = false;
+    SpinLockRelease(&global_variables->overflow_mutex);
 }
 
 void
@@ -696,7 +747,6 @@ pg_comment_stats_main(Datum main_arg) {
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
     LWLockInitialize(&global_variables->lock, LWLockNewTrancheId());
-    LWLockInitialize(&global_variables->reset_lock, LWLockNewTrancheId());
 
     pgcs_init();
     wait_microsec = global_variables->bucket_duration * 1e6;
@@ -719,13 +769,11 @@ pg_comment_stats_main(Datum main_arg) {
         }
         /* Main work happens here */
         pgcs_update_info();
-        LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
         if (global_variables->out_of_shared_memory) {
-            elog(WARNING, "Pg comment stats: out of shared memory");
+            elog(WARNING, "pg_comment_stats: out of shared memory");
             global_variables->out_of_shared_memory = false;
         }
         pgtb_tick(extension_name);
-        LWLockRelease(&global_variables->reset_lock);
         wait_microsec = (int64) global_variables->bucket_duration * 1e6 - (GetCurrentTimestamp() - timestamp);
         if (wait_microsec < 0)
             wait_microsec = 0;
@@ -829,8 +877,8 @@ pgcs_get_stats(PG_FUNCTION_ARGS) {
     TimestampTz timestamp_left;
     TimestampTz timestamp_right;
 
-    timestamp_right = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), global_variables->bucket_duration * 100000);
-    timestamp_left = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), global_variables->bucket_duration * (- buckets_count * 100000));
+    timestamp_right = GetCurrentTimestamp();
+    timestamp_left = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), (int64) global_variables->bucket_duration * (-buckets_count) * 1e3);
 
     return pgcs_internal_get_stats_time_interval(timestamp_left, timestamp_right, fcinfo);
 }
@@ -901,7 +949,6 @@ pgcs_internal_get_stats_time_interval(TimestampTz timestamp_left, TimestampTz ti
     MemSet(values, 0, sizeof(values));
     MemSet(nulls, 0, sizeof(nulls));
     MemSet(&key, 0, sizeof(pgcsBucketItem));
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
 
     items_count = global_variables->items_count;
@@ -969,7 +1016,6 @@ pgcs_internal_get_stats_time_interval(TimestampTz timestamp_left, TimestampTz ti
     LWLockRelease(&global_variables->lock);
     /* return the tuplestore */
     tuplestore_donestoring(tupstore);
-    LWLockRelease(&global_variables->reset_lock);
     return (Datum) 0;
 }
 
@@ -982,7 +1028,6 @@ pgcs_exclude_key(PG_FUNCTION_ARGS) {
         ereport(ERROR,
                 (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
                         errmsg("pg_comment_stats must be loaded via shared_preload_libraries")));
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     if (global_variables->excluded_keys_count == max_parameters_count) {
         elog(WARNING, "pgcs: Can't exclude more than %d keys. You can drop existing keys by 'pgcs_reset_excluded_keys'",
@@ -999,7 +1044,6 @@ pgcs_exclude_key(PG_FUNCTION_ARGS) {
         }
     }
     LWLockRelease(&global_variables->lock);
-    LWLockRelease(&global_variables->reset_lock);
 
     PG_RETURN_VOID();
 }
@@ -1058,7 +1102,6 @@ pgcs_get_excluded_keys(PG_FUNCTION_ARGS) {
                        TEXTOID, -1, 0);
     tupdesc = BlessTupleDesc(tupdesc);
 
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     for (i = 0; i < global_variables->excluded_keys_count; ++i) {
         values[0] = CStringGetTextDatum(global_variables->excluded_keys[i]);
@@ -1067,7 +1110,6 @@ pgcs_get_excluded_keys(PG_FUNCTION_ARGS) {
     }
 
     LWLockRelease(&global_variables->lock);
-    LWLockRelease(&global_variables->reset_lock);
 
     tuplestore_donestoring(tupstore);
     return (Datum) 0;
@@ -1128,13 +1170,11 @@ pgcs_get_buffer_stats(PG_FUNCTION_ARGS) {
                        INT4OID, -1, 0);
     tupdesc = BlessTupleDesc(tupdesc);
 
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     values[0] = Int32GetDatum(global_variables->currents_strings_count);
     values[1] = Int32GetDatum(global_variables->items_count);
 
     LWLockRelease(&global_variables->lock);
-    LWLockRelease(&global_variables->reset_lock);
     tuplestore_putvalues(tupstore, tupdesc, values, nulls);
     tuplestore_donestoring(tupstore);
     return (Datum) 0;
@@ -1149,11 +1189,9 @@ pgcs_reset_excluded_keys(PG_FUNCTION_ARGS) {
                 (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
                         errmsg("pg_comment_stats must be loaded via shared_preload_libraries")));
 
-    LWLockAcquire(&global_variables->reset_lock, LW_EXCLUSIVE);
     LWLockAcquire(&global_variables->lock, LW_EXCLUSIVE);
     memset(&global_variables->excluded_keys, '\0', sizeof(global_variables->excluded_keys));
     global_variables->excluded_keys_count = 0;
     LWLockRelease(&global_variables->lock);
-    LWLockRelease(&global_variables->reset_lock);
     PG_RETURN_VOID();
 }

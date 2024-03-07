@@ -7,6 +7,10 @@
 #include <sys/resource.h>
 #endif
 
+#ifndef HAVE_GETRUSAGE
+#define HAVE_GETRUSAGE
+#endif
+
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -17,8 +21,8 @@
 #include "utils/builtins.h"
 #include "catalog/pg_type.h"
 
-#include "pg_stat_kcache.h"
-#include "pg_time_buffer.h"
+#include "pg_stat_kcache/pg_stat_kcache.h"
+#include "pg_time_buffer/pg_time_buffer.h"
 #include "pg_comment_stats_constants.h"
 
 typedef struct pgcsStringFromId {

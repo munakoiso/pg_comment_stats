@@ -1,0 +1,6 @@
+[submodule "pg_time_buffer"]
+	path = pg_time_buffer
+	url = https://github.com/munakoiso/pg_time_buffer.git
+[submodule "pg_stat_kcache"]
+	path = pg_stat_kcache
+	url = https://github.com/powa-team/pg_stat_kcache.git

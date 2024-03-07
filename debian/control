@@ -1,0 +1,48 @@
+Source: pg-comment-stats
+Section: database
+Priority: optional
+Maintainer: munakoiso <ermilin.c@yandex.ru>
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13), postgresql-all (>= 217~)
+
+Package: postgresql-16-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-16
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache
+
+
+Package: postgresql-15-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-15
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.
+
+
+Package: postgresql-14-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-14
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.
+
+
+Package: postgresql-13-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-13
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.
+
+
+Package: postgresql-12-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-12
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.
+
+
+Package: postgresql-11-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-11
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.

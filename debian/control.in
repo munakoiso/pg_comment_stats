@@ -1,13 +1,13 @@
- Source: pg-comment-stats
- Section: database
- Priority: optional
- Maintainer: munakoiso <ermilin.c@yandex.ru>
- Standards-Version: 4.6.2
- Rules-Requires-Root: no
- Build-Depends: debhelper-compat (= 13), postgresql-all (>= 217~)
+Source: pg-comment-stats
+Section: database
+Priority: optional
+Maintainer: munakoiso <ermilin.c@yandex.ru>
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13), postgresql-all (>= 217~)
 
- Package: postgresql-PGVERSION-pg-comment-stats
- Architecture: any
- Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
-  postgresql-contrib-PGVERSION
- Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache
+Package: postgresql-PGVERSION-pg-comment-stats
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${postgresql:Depends},
+ postgresql-contrib-PGVERSION
+Description: PostgreSQL extension that saves stats about queries using keys from comments and counters from pg_stat_kcache.

@@ -981,8 +981,8 @@ pgcs_internal_get_stats_time_interval(TimestampTz timestamp_left, TimestampTz ti
 #ifdef HAVE_GETRUSAGE
         reads = value.reads * RUSAGE_BLOCK_SIZE;
         writes = value.writes * RUSAGE_BLOCK_SIZE;
-        values[i++] = Int64GetDatumFast(reads);
-        values[i++] = Int64GetDatumFast(writes);
+        values[i++] = UInt64GetDatum(reads);
+        values[i++] = UInt64GetDatum(writes);
 #else
         nulls[i++] = true; /* reads */
         nulls[i++] = true; /* writes */

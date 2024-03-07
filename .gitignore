@@ -1,1 +1,4 @@
 .idea/
+
+pg_time_buffer
+pg_stat_kcache

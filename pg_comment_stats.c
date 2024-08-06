@@ -1014,8 +1014,6 @@ pgcs_internal_get_stats_time_interval(TimestampTz timestamp_left, TimestampTz ti
     }
     pfree(result_ptr);
     LWLockRelease(&global_variables->lock);
-    /* return the tuplestore */
-    tuplestore_donestoring(tupstore);
     return (Datum) 0;
 }
 
@@ -1110,8 +1108,6 @@ pgcs_get_excluded_keys(PG_FUNCTION_ARGS) {
     }
 
     LWLockRelease(&global_variables->lock);
-
-    tuplestore_donestoring(tupstore);
     return (Datum) 0;
 }
 
@@ -1176,7 +1172,6 @@ pgcs_get_buffer_stats(PG_FUNCTION_ARGS) {
 
     LWLockRelease(&global_variables->lock);
     tuplestore_putvalues(tupstore, tupdesc, values, nulls);
-    tuplestore_donestoring(tupstore);
     return (Datum) 0;
 }
 

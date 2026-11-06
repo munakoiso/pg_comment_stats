@@ -9,8 +9,9 @@
 #include "storage/proc.h"
 #include "storage/shmem.h"
 #include "utils/datetime.h"
-#include "utils/dynahash.h"
+#include "utils/hsearch.h"
 #include "utils/timestamp.h"
+#include "utils/tuplestore.h"
 #include "pg_comment_stats.h"
 #include "utils/guc.h"
 
@@ -54,7 +55,7 @@ static Datum pgcs_internal_get_stats_time_interval(TimestampTz, TimestampTz, Fun
 void pgcs_add(void*, void*);
 void pgcs_on_delete(void*, void*);
 static uint64_t pgcs_find_optimal_memory_split(uint64_t, uint64_t, uint64_t*, uint64_t*, uint64_t*, int*, int*);
-void pg_comment_stats_main(Datum main_arg);
+PGDLLEXPORT void pg_comment_stats_main(Datum main_arg);
 void pgcs_store_aggregated_counters(pgskCounters*, const char*, int, pgskStoreKind);
 
 static int
@@ -238,7 +239,10 @@ pgcs_shmem_startup(void)
     info.keysize = sizeof(char) * max_parameter_length;
     info.entrysize = sizeof(pgcsIdFromString);
     string_to_id = ShmemInitHash("pg_comment_stats string_to_id_htab",
-                                 items_count, items_count,
+                                 items_count,
+#if PG_VERSION_NUM < 190000
+                                 items_count,
+#endif
                                  &info,
                                  HASH_ELEM | HASH_BLOBS);
 
@@ -247,7 +251,10 @@ pgcs_shmem_startup(void)
     info.entrysize = sizeof(pgcsStringFromId);
 
     id_to_string = ShmemInitHash("pg_comment_stats id_to_string_htab",
-                                 items_count, items_count,
+                                 items_count,
+#if PG_VERSION_NUM < 190000
+                                 items_count,
+#endif
                                  &info,
                                  HASH_ELEM | HASH_BLOBS);
 
@@ -746,7 +753,11 @@ pg_comment_stats_main(Datum main_arg) {
 
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
+#if PG_VERSION_NUM >= 190000
+    LWLockInitialize(&global_variables->lock, LWLockNewTrancheId(extension_name));
+#else
     LWLockInitialize(&global_variables->lock, LWLockNewTrancheId());
+#endif
 
     pgcs_init();
     wait_microsec = global_variables->bucket_duration * 1e6;
